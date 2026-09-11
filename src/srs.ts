@@ -66,7 +66,9 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
-  if (!item.learning.nextReviewDate) return true; // never reviewed
+  // New words (never reviewed) are NOT counted as "due today".
+  // They still appear in "Review All" and Smart Review.
+  if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
 }
 
