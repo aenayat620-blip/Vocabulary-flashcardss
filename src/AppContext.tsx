@@ -174,19 +174,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [data, save]
   );
 
-  const deleteCategory = useCallback(
+    const deleteCategory = useCallback(
     async (id: string) => {
       if (!data) return;
-      // Remove category, but keep words that belong to other categories
+      // Remove category. Keep words that still belong to other categories.
+      // Words that only belonged to this category are removed.
       const cats = data.categories.filter((c) => c.categoryId !== id);
       const vocab = data.vocabulary
         .map((v) => ({
           ...v,
           categoryIds: v.categoryIds.filter((cid) => cid !== id),
         }))
-        .filter((v) => v.categoryIds.length > 0); // remove orphan words that had only this category
-      // Actually keep orphans? Spec says deleting category must not delete learning of shared, but for exclusive, remove is ok.
-      // Keep words even if no category left? Better keep them.
+        .filter((v) => v.categoryIds.length > 0);
+      await save({ ...data, categories: cats, vocabulary: vocab });
+    },
+    [data, save]
+  );
       const allVocab = data.vocabulary.map((v) => ({
         ...v,
         categoryIds: v.categoryIds.filter((cid) => cid !== id),
