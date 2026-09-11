@@ -24,23 +24,20 @@ function generateId(): string {
 function cleanLatex(text: string): string {
   if (!text) return '';
   let t = text;
-  // Common LaTeX cleanups
   t = t.replace(/\\&/g, '&');
-  t = t.replace(/\\'/g, ''); // remove \' before letter, handle specifically
   t = t.replace(/\\'e/g, 'é');
   t = t.replace(/\\'E/g, 'É');
   t = t.replace(/\\`e/g, 'è');
   t = t.replace(/\\"e/g, 'ë');
   t = t.replace(/\\~n/g, 'ñ');
   t = t.replace(/\\c\{c\}/g, 'ç');
-  t = t.replace(/\\small/g, '');
-  t = t.replace(/\\large/g, '');
+  t = t.replace(/\\small\b/g, '');
+  t = t.replace(/\\large\b/g, '');
   t = t.replace(/\\textbf\{([^}]*)\}/g, '$1');
   t = t.replace(/\\textit\{([^}]*)\}/g, '$1');
   t = t.replace(/\\emph\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\[a-zA-Z]+\{([^}]*)\}/g, '$1'); // generic command with arg
-  t = t.replace(/\\[a-zA-Z]+/g, ''); // remaining commands
-  t = t.replace(/\{|\}/g, '');
+  t = t.replace(/\\[a-zA-Z]+\s*\{([^}]*)\}/g, '$1');
+  t = t.replace(/\\[a-zA-Z]+/g, '');
   return t.trim();
 }
 
@@ -63,7 +60,6 @@ function parseEnglishWord(raw: string): {
       return { english: base, v2: parts[0], v3: parts[1] };
     }
   }
-  // assume plural
   return { english: base, irregularPlural: inside };
 }
 
@@ -72,7 +68,6 @@ function parsePronunciation(raw: string): {
   stressed: string;
 } {
   const cleaned = cleanLatex(raw).trim();
-  // Look for (stressed)
   const match = cleaned.match(/^(.*?)\(([^)]+)\)(.*?)$/);
   if (match) {
     const before = match[1] || '';
@@ -93,34 +88,36 @@ export interface ParsedImport {
 }
 
 export function parseImportText(text: string): ParsedImport {
-  const lines = text.split(/\r?\n/);
+  let normalized = text.replace(/^\uFEFF/, '');
+  normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const lines = normalized.split('\n');
   let categoryEnglish = '';
   let categoryPersian = '';
   const words: ParsedImport['words'] = [];
   const errors: string[] = [];
   let linesProcessed = 0;
 
+  const catRe = /\\voccategory\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
+  const pairRe = /\\vwordpair\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
+  const wordRe = /\\vword\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
+
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const line = rawLine.trim();
+    const line = lines[i].trim();
     if (!line) continue;
     linesProcessed++;
 
-    // \voccategory{En}{Fa}
-    const catMatch = line.match(/\\voccategory\s*\{([^}]*)\}\s*\{([^}]*)\}/);
+    const catMatch = line.match(catRe);
     if (catMatch) {
       categoryEnglish = cleanLatex(catMatch[1]);
       categoryPersian = cleanLatex(catMatch[2]);
       continue;
     }
 
-    // \vwordpair{w1}{p1}{m1}{w2}{p2}{m2}
-    const pairMatch = line.match(
-      /\\vwordpair\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/
-    );
+    const pairMatch = line.match(pairRe);
     if (pairMatch) {
       try {
-        const [ , e1, p1, m1, e2, p2, m2 ] = pairMatch;
+        const [, e1, p1, m1, e2, p2, m2] = pairMatch;
         const eng1 = parseEnglishWord(e1);
         const pron1 = parsePronunciation(p1);
         words.push({
@@ -143,14 +140,13 @@ export function parseImportText(text: string): ParsedImport {
           v2: eng2.v2,
           v3: eng2.v3,
         });
-      } catch (e) {
-        errors.push(`خط ${i + 1}: خطای پردازش جفت واژه - ${line.slice(0, 60)}`);
+      } catch {
+        errors.push(`خط ${i + 1}: خطای پردازش جفت واژه`);
       }
       continue;
     }
 
-    // \vword{w}{p}{m}
-    const wordMatch = line.match(/\\vword\s*\{([^}]*)\}\s*\{([^}]*)\}\s*\{([^}]*)\}/);
+    const wordMatch = line.match(wordRe);
     if (wordMatch) {
       try {
         const [, e, p, m] = wordMatch;
@@ -165,15 +161,14 @@ export function parseImportText(text: string): ParsedImport {
           v2: eng.v2,
           v3: eng.v3,
         });
-      } catch (e) {
-        errors.push(`خط ${i + 1}: خطای پردازش واژه - ${line.slice(0, 60)}`);
+      } catch {
+        errors.push(`خط ${i + 1}: خطای پردازش واژه`);
       }
       continue;
     }
 
-    // Ignore other lines or mark as possible error if looks like command
-    if (line.startsWith('\\')) {
-      errors.push(`خط ${i + 1}: دستور ناشناخته یا ناقص - ${line.slice(0, 80)}`);
+    if (line.includes('\\vword') || line.includes('\\voccategory')) {
+      errors.push(`خط ${i + 1}: قابل پردازش نبود — ${line.slice(0, 70)}`);
     }
   }
 
