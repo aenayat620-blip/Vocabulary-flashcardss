@@ -7,7 +7,8 @@ function daysToMs(days: number): number {
 
 export function applyAnswer(
   learning: LearningRecord,
-  answer: AnswerType
+  answer: AnswerType,
+  direction?: 'en-fa' | 'fa-en'
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -26,6 +27,10 @@ export function applyAnswer(
   } = learning;
 
   totalReviews += 1;
+
+  // Keep study progress independent for each direction.
+  const enToFaReviews = learning.enToFaReviews ?? 0;
+  const faToEnReviews = learning.faToEnReviews ?? 0;
 
   if (answer === 'known') {
     correctCount += 1;
@@ -52,6 +57,8 @@ export function applyAnswer(
 
   return {
     totalReviews,
+    enToFaReviews: enToFaReviews + (direction === 'en-fa' ? 1 : 0),
+    faToEnReviews: faToEnReviews + (direction === 'fa-en' ? 1 : 0),
     correctCount,
     incorrectCount,
     unsureCount,
@@ -67,10 +74,23 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
-  // Never-studied words are new words, not review items.
+  // A word that has never been studied is not a review item.
   if (item.learning.totalReviews === 0) return false;
   if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
+}
+
+/**
+ * Returns true when this word has not yet been studied in the requested
+ * direction. This is used by Continue so each direction has its own progress.
+ */
+export function isUnseenInDirection(
+  item: VocabularyItem,
+  direction: 'en-fa' | 'fa-en'
+): boolean {
+  return direction === 'en-fa'
+    ? (item.learning.enToFaReviews ?? 0) === 0
+    : (item.learning.faToEnReviews ?? 0) === 0;
 }
 
 export function isWeak(item: VocabularyItem): boolean {
