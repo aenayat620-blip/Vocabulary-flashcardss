@@ -8,8 +8,6 @@ export interface ReviewHistoryEntry {
 
 export interface LearningRecord {
   totalReviews: number;
-  enFaReviews?: number;
-  faEnReviews?: number;
   correctCount: number;
   incorrectCount: number;
   unsureCount: number;
@@ -45,6 +43,11 @@ export interface Category {
   createdAt: number;
   modifiedAt: number;
   wordIds: string[]; // ordered
+  /** Next word index (0-based) to continue from, per study direction */
+  continueProgress?: {
+    'en-fa': number;
+    'fa-en': number;
+  };
 }
 
 export interface AppSettings {

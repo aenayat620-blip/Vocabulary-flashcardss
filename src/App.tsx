@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useApp } from './AppContext';
 import type { VocabularyItem, StudySession, AnswerType, Category } from './types';
 import { getGlobalStats, getCategoryStats, shuffleArray, speakEnglish, getStressedParts, formatDate } from './utils';
-import { isDue, isWeak, isLearned, isLearning, getAccuracy, prioritizeForSmartReview, isUnseenInDirection } from './srs';
+import { isDue, isWeak, isLearned, isLearning, getAccuracy, prioritizeForSmartReview } from './srs';
 import { parseImportText } from './parser';
 
 type Screen = 'home' | 'categories' | 'import' | 'studySetup' | 'study' | 'sessionEnd' | 'backup' | 'settings' | 'search' | 'wordDetail' | 'quiz';
@@ -49,18 +49,35 @@ export default function App() {
   const stats = useMemo(() => data ? getGlobalStats(data) : null, [data]);
   const showMsg = (type: string, text: string) => { setMessage({ type, text }); setTimeout(() => setMessage(null), 4000); };
 
-  const buildDeck = useCallback((catIds: string[], mode: string, order: string, studyDirection: 'en-fa' | 'fa-en') => {
+  const buildDeck = useCallback((catIds: string[], mode: string, order: string, dir: 'en-fa' | 'fa-en' | 'random' = 'en-fa') => {
     if (!data) return [];
     let words = data.vocabulary.filter(v => v.categoryIds.some(id => catIds.includes(id)));
+    if (mode === 'continue') {
+      // Per-direction sequential continue: start from the saved next-index
+      // for the chosen direction in each selected category.
+      // EN→FA progress is independent of FA→EN progress.
+      const effectiveDir: 'en-fa' | 'fa-en' = dir === 'random' ? 'en-fa' : dir;
+      const ids: string[] = [];
+      const added = new Set<string>();
+      for (const catId of catIds) {
+        const category = data.categories.find(c => c.categoryId === catId);
+        if (!category) continue;
+        const startIdx = category.continueProgress?.[effectiveDir] ?? 0;
+        for (let i = Math.max(0, startIdx); i < category.wordIds.length; i++) {
+          const wordId = category.wordIds[i];
+          if (added.has(wordId)) continue;
+          const word = data.vocabulary.find(v => v.wordId === wordId);
+          if (!word) continue;
+          added.add(wordId);
+          ids.push(wordId);
+        }
+      }
+      return ids;
+    }
     if (mode === 'unknown') words = words.filter(w => w.learning.lastAnswer === 'unknown' || w.learning.incorrectCount > 0);
     else if (mode === 'weak') words = words.filter(isWeak);
     else if (mode === 'due') words = words.filter(w => isDue(w));
     else if (mode === 'starred') words = words.filter(w => w.learning.starred);
-    else if (mode === 'continue') {
-      words = words.filter(w => isUnseenInDirection(w, studyDirection));
-      words = words.sort((a, b) => a.creationOrder - b.creationOrder);
-      return words.map(w => w.wordId);
-    }
     else if (mode === 'smart') { words = prioritizeForSmartReview(words); return words.map(w => w.wordId); }
     let ids = words.map(w => w.wordId);
     if (order === 'shuffled') ids = shuffleArray(ids);
@@ -70,13 +87,14 @@ export default function App() {
 
   const startStudy = async () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deckDirection = direction === 'random' ? (Math.random() > 0.5 ? 'en-fa' : 'fa-en') : direction;
-    const deck = buildDeck(selectedCats, studyMode, cardOrder, deckDirection);
+    // Continue mode is always sequential and direction-specific
+    const effectiveOrder = studyMode === 'continue' ? 'sequential' : cardOrder;
+    const deck = buildDeck(selectedCats, studyMode, effectiveOrder, direction);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
-    const session: StudySession = { sessionId: crypto.randomUUID(), selectedCategoryIds: selectedCats, mode: studyMode, direction, cardOrder, deck, currentIndex: 0, answers: {}, correct: 0, unsure: 0, incorrect: 0, startTime: Date.now(), lastUpdated: Date.now(), isActive: true };
+    const session: StudySession = { sessionId: crypto.randomUUID(), selectedCategoryIds: selectedCats, mode: studyMode, direction, cardOrder: effectiveOrder, deck, currentIndex: 0, answers: {}, correct: 0, unsure: 0, incorrect: 0, startTime: Date.now(), lastUpdated: Date.now(), isActive: true };
     await startSession(session);
     setFlipped(false); spokenRef.current = null;
-    setCurrentDir(deckDirection);
+    setCurrentDir(direction === 'random' ? (Math.random()>0.5?'en-fa':'fa-en') : direction);
     setScreen('study');
   };
 
@@ -84,7 +102,7 @@ export default function App() {
     if (!data?.currentSession) return;
     const wordId = data.currentSession.deck[data.currentSession.currentIndex];
     const isLastCard = data.currentSession.currentIndex + 1 >= data.currentSession.deck.length;
-    await answerCard(wordId, answer, currentDir);
+    await answerCard(wordId, answer);
     setFlipped(false); spokenRef.current = null;
     if (isLastCard) { setScreen('sessionEnd'); }
     else if (direction === 'random') setCurrentDir(Math.random()>0.5?'en-fa':'fa-en');
@@ -92,7 +110,8 @@ export default function App() {
 
   const startQuiz = () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deck = buildDeck(selectedCats, studyMode, cardOrder, direction === 'random' ? 'en-fa' : direction);
+    const effectiveOrder = studyMode === 'continue' ? 'sequential' : cardOrder;
+    const deck = buildDeck(selectedCats, studyMode, effectiveOrder, direction);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
     setQuizDeck(deck);
     setQuizIndex(0);
@@ -125,7 +144,7 @@ export default function App() {
     setQuizAnswered(true);
     const isCorrect = choice === quizWord.persianMeaning;
     if (isCorrect) setQuizCorrectCount(c => c + 1);
-    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown', direction === 'fa-en' ? 'fa-en' : 'en-fa');
+    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown');
   };
 
   const submitTypeAnswer = async () => {
@@ -133,7 +152,7 @@ export default function App() {
     setQuizAnswered(true);
     const isCorrect = quizTyped.trim() === quizWord.persianMeaning.trim();
     if (isCorrect) setQuizCorrectCount(c => c + 1);
-    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown', direction === 'fa-en' ? 'fa-en' : 'en-fa');
+    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown');
   };
 
   const nextQuizWord = () => {

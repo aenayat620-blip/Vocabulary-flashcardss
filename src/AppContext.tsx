@@ -35,7 +35,7 @@ interface AppContextValue {
   updateCategory: (id: string, en: string, fa: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
-  answerCard: (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en') => Promise<void>;
+  answerCard: (wordId: string, answer: AnswerType) => Promise<void>;
   toggleStar: (wordId: string) => Promise<void>;
   startSession: (session: StudySession) => Promise<void>;
   updateSession: (session: StudySession) => Promise<void>;
@@ -66,12 +66,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       let d = await loadAppData();
 
-      // Optional build-time bundled categories. They are imported only when the
-      // device has no categories yet, so normal user data is never overwritten.
-      if (d.categories.length === 0 && BUNDLED_CATEGORIES.length > 0) {
+      // Build-time bundled categories are seeded individually without overwriting
+      // existing user data. This also allows newly bundled categories to be added
+      // to an existing installation later, while preserving user-created categories.
+      if (BUNDLED_CATEGORIES.length > 0) {
+        let changed = false;
+
         for (const importText of BUNDLED_CATEGORIES) {
           const parsed = parseImportText(importText);
           if (!parsed.words.length) continue;
+
+          const alreadyExists = d.categories.some(
+            (category) =>
+              category.englishName.trim().toLowerCase() === parsed.categoryEnglish.trim().toLowerCase() &&
+              category.persianName.trim() === parsed.categoryPersian.trim()
+          );
+          if (alreadyExists) continue;
+
           const catId = crypto.randomUUID();
           const now = Date.now();
           const newWords = createVocabularyItems(parsed.words, catId, d.vocabulary.length);
@@ -84,11 +95,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               createdAt: now,
               modifiedAt: now,
               wordIds: newWords.map(w => w.wordId),
+              continueProgress: { 'en-fa': 0, 'fa-en': 0 },
             }],
             vocabulary: [...d.vocabulary, ...newWords],
           };
+          changed = true;
         }
-        await saveAppData(d);
+
+        if (changed) await saveAppData(d);
       }
 
       setData(d);
@@ -151,6 +165,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdAt: now,
         modifiedAt: now,
         wordIds: newWords.map((w) => w.wordId),
+        continueProgress: { 'en-fa': 0, 'fa-en': 0 },
       };
 
       const newData: AppData = {
@@ -181,6 +196,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdAt: now,
         modifiedAt: now,
         wordIds: [],
+        continueProgress: { 'en-fa': 0, 'fa-en': 0 },
       };
       await save({ ...data, categories: [...data.categories, cat] });
       return id;
@@ -224,11 +240,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const answerCard = useCallback(
-    async (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en') => {
+    async (wordId: string, answer: AnswerType) => {
       if (!data) return;
       const vocab = data.vocabulary.map((v) => {
         if (v.wordId !== wordId) return v;
-        return { ...v, learning: applyAnswer(v.learning, answer, direction) };
+        return { ...v, learning: applyAnswer(v.learning, answer) };
       });
       // update stats
       const stats = { ...data.stats };
@@ -253,6 +269,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       let session = data.currentSession;
+      let categories = data.categories;
+
       if (session && session.isActive) {
         session = {
           ...session,
@@ -264,9 +282,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           lastUpdated: Date.now(),
           isActive: session.currentIndex + 1 < session.deck.length,
         };
+
+        // Advance per-direction continue progress for selected categories
+        if (session.mode === 'continue' && session.direction !== 'random') {
+          const dir = session.direction as 'en-fa' | 'fa-en';
+          categories = data.categories.map((cat) => {
+            if (!session!.selectedCategoryIds.includes(cat.categoryId)) return cat;
+            const idx = cat.wordIds.indexOf(wordId);
+            if (idx < 0) return cat;
+            const current = cat.continueProgress?.[dir] ?? 0;
+            // Only advance if this word is at or beyond the current continue point
+            if (idx < current) return cat;
+            const next = idx + 1;
+            return {
+              ...cat,
+              continueProgress: {
+                'en-fa': cat.continueProgress?.['en-fa'] ?? 0,
+                'fa-en': cat.continueProgress?.['fa-en'] ?? 0,
+                [dir]: Math.max(current, next),
+              },
+              modifiedAt: Date.now(),
+            };
+          });
+        }
       }
 
-      await save({ ...data, vocabulary: vocab, stats, currentSession: session });
+      await save({ ...data, vocabulary: vocab, stats, currentSession: session, categories });
     },
     [data, save]
   );
@@ -328,10 +369,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         starred: false, // keep star? Spec says reset progress, keep starred maybe
       });
       let vocab = data.vocabulary;
+      let categories = data.categories;
       if (scope === 'all') {
         vocab = vocab.map((v) => ({
           ...v,
           learning: { ...emptyLearning(), starred: v.learning.starred },
+        }));
+        // Reset continue progress for all categories
+        categories = categories.map((c) => ({
+          ...c,
+          continueProgress: { 'en-fa': 0, 'fa-en': 0 },
+          modifiedAt: Date.now(),
         }));
       } else if (categoryIds) {
         vocab = vocab.map((v) => {
@@ -342,6 +390,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             };
           }
           return v;
+        });
+        categories = categories.map((c) => {
+          if (categoryIds.includes(c.categoryId)) {
+            return {
+              ...c,
+              continueProgress: { 'en-fa': 0, 'fa-en': 0 },
+              modifiedAt: Date.now(),
+            };
+          }
+          return c;
         });
       }
       const reviewed = vocab.filter(v => v.learning.totalReviews > 0);
@@ -360,7 +418,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         recalculatedStats.totalIncorrect = 0;
         recalculatedStats.totalUnsure = 0;
       }
-      await save({ ...data, vocabulary: vocab, stats: recalculatedStats });
+      await save({ ...data, vocabulary: vocab, categories, stats: recalculatedStats });
     },
     [data, save]
   );

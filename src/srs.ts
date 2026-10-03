@@ -7,8 +7,7 @@ function daysToMs(days: number): number {
 
 export function applyAnswer(
   learning: LearningRecord,
-  answer: AnswerType,
-  direction: 'en-fa' | 'fa-en'
+  answer: AnswerType
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -27,10 +26,6 @@ export function applyAnswer(
   } = learning;
 
   totalReviews += 1;
-  let enFaReviews = learning.enFaReviews ?? 0;
-  let faEnReviews = learning.faEnReviews ?? 0;
-  if (direction === 'en-fa') enFaReviews += 1;
-  else faEnReviews += 1;
 
   if (answer === 'known') {
     correctCount += 1;
@@ -72,6 +67,7 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
+  // Never-studied words are new words, not review items.
   if (item.learning.totalReviews === 0) return false;
   if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
@@ -116,10 +112,4 @@ export function prioritizeForSmartReview(items: VocabularyItem[]): VocabularyIte
     };
     return score(a) - score(b);
   });
-}
-
-export function isUnseenInDirection(item: VocabularyItem, direction: 'en-fa' | 'fa-en'): boolean {
-  return direction === 'en-fa'
-    ? (item.learning.enFaReviews ?? 0) === 0
-    : (item.learning.faEnReviews ?? 0) === 0;
 }
