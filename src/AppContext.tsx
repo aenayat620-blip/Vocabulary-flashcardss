@@ -66,23 +66,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       let d = await loadAppData();
 
-      // Build-time bundled categories are seeded individually without overwriting
-      // existing user data. This also allows newly bundled categories to be added
-      // to an existing installation later, while preserving user-created categories.
-      if (BUNDLED_CATEGORIES.length > 0) {
-        let changed = false;
+      // Backward-compatible migration: older saved data only had totalReviews.
+      // Treat those historical reviews as English → Persian reviews so existing
+      // Continue progress is preserved. New reviews are tracked independently.
+      let progressMigrated = false;
+      const migratedVocabulary = d.vocabulary.map((word) => {
+        const hasDirectionProgress =
+          word.learning.enToFaReviews !== undefined ||
+          word.learning.faToEnReviews !== undefined;
 
+        if (hasDirectionProgress) return word;
+
+        progressMigrated = true;
+        return {
+          ...word,
+          learning: {
+            ...word.learning,
+            enToFaReviews: word.learning.totalReviews,
+            faToEnReviews: 0,
+          },
+        };
+      });
+
+      if (progressMigrated) {
+        d = { ...d, vocabulary: migratedVocabulary };
+        await saveAppData(d);
+      }
+
+      // Optional build-time bundled categories. They are imported only when the
+      // device has no categories yet, so normal user data is never overwritten.
+      if (d.categories.length === 0 && BUNDLED_CATEGORIES.length > 0) {
         for (const importText of BUNDLED_CATEGORIES) {
           const parsed = parseImportText(importText);
           if (!parsed.words.length) continue;
-
-          const alreadyExists = d.categories.some(
-            (category) =>
-              category.englishName.trim().toLowerCase() === parsed.categoryEnglish.trim().toLowerCase() &&
-              category.persianName.trim() === parsed.categoryPersian.trim()
-          );
-          if (alreadyExists) continue;
-
           const catId = crypto.randomUUID();
           const now = Date.now();
           const newWords = createVocabularyItems(parsed.words, catId, d.vocabulary.length);
@@ -98,10 +114,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }],
             vocabulary: [...d.vocabulary, ...newWords],
           };
-          changed = true;
         }
-
-        if (changed) await saveAppData(d);
+        await saveAppData(d);
       }
 
       setData(d);
@@ -166,20 +180,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         wordIds: newWords.map((w) => w.wordId),
       };
 
-
-     const getContinueWords = (
-  words: VocabularyItem[],
-  direction: StudyDirection
-) => {
-  return words.filter((word) => {
-    if (direction === 'en-to-fa') {
-      return word.learning.enToFaReviews === 0;
-    }
-
-    return word.learning.faToEnReviews === 0;
-  });
-};
-      
       const newData: AppData = {
         ...data,
         categories: [...data.categories, newCategory],
@@ -253,9 +253,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const answerCard = useCallback(
     async (wordId: string, answer: AnswerType) => {
       if (!data) return;
+      // Use the actual session direction so English→Persian and
+      // Persian→English progress are stored independently.
+      const sessionDirection = data.currentSession?.direction;
+      const direction = sessionDirection === 'en-fa' || sessionDirection === 'fa-en'
+        ? sessionDirection
+        : undefined;
+
       const vocab = data.vocabulary.map((v) => {
         if (v.wordId !== wordId) return v;
-        return { ...v, learning: applyAnswer(v.learning, answer) };
+        return { ...v, learning: applyAnswer(v.learning, answer, direction) };
       });
       // update stats
       const stats = { ...data.stats };
@@ -342,6 +349,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!data) return;
       const emptyLearning = () => ({
         totalReviews: 0,
+        enToFaReviews: 0,
+        faToEnReviews: 0,
         correctCount: 0,
         incorrectCount: 0,
         unsureCount: 0,
