@@ -16,7 +16,7 @@ import type {
 } from './types';
 import { BUNDLED_CATEGORIES } from './bundledCategories';
 import { loadAppData, saveAppData, requestPersistentStorage } from './db';
-import { applyAnswer, type StudyDirection } from './srs';
+import { applyAnswer } from './srs';
 import { parseImportText, createVocabularyItems } from './parser';
 
 interface AppContextValue {
@@ -35,7 +35,7 @@ interface AppContextValue {
   updateCategory: (id: string, en: string, fa: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
-  answerCard: (wordId: string, answer: AnswerType, direction?: StudyDirection) => Promise<void>;
+  answerCard: (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en') => Promise<void>;
   toggleStar: (wordId: string) => Promise<void>;
   startSession: (session: StudySession) => Promise<void>;
   updateSession: (session: StudySession) => Promise<void>;
@@ -66,47 +66,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       let d = await loadAppData();
 
-      // Migrate older data: before direction-specific progress existed, all
-      // reviews were shared. Preserve that old progress in the currently
-      // selected study direction, while starting the opposite direction at 0.
-      const migrationDirection: StudyDirection =
-        d.settings?.studyDirection === 'fa-en' ? 'fa-en' : 'en-fa';
-      let migrationChanged = false;
-      d = {
-        ...d,
-        vocabulary: d.vocabulary.map((v) => {
-          const l = v.learning as any;
-          if (typeof l.enFaReviews === 'number' && typeof l.faEnReviews === 'number') return v;
-          migrationChanged = true;
-          return {
-            ...v,
-            learning: {
-              ...l,
-              enFaReviews: migrationDirection === 'en-fa' ? (l.totalReviews ?? 0) : 0,
-              faEnReviews: migrationDirection === 'fa-en' ? (l.totalReviews ?? 0) : 0,
-            },
-          };
-        }),
-      };
-      if (migrationChanged) await saveAppData(d);
-
-      // Build-time bundled categories are seeded individually without overwriting
-      // existing user data. This also allows newly bundled categories to be added
-      // to an existing installation later, while preserving user-created categories.
-      if (BUNDLED_CATEGORIES.length > 0) {
-        let changed = false;
-
+      // Optional build-time bundled categories. They are imported only when the
+      // device has no categories yet, so normal user data is never overwritten.
+      if (d.categories.length === 0 && BUNDLED_CATEGORIES.length > 0) {
         for (const importText of BUNDLED_CATEGORIES) {
           const parsed = parseImportText(importText);
           if (!parsed.words.length) continue;
-
-          const alreadyExists = d.categories.some(
-            (category) =>
-              category.englishName.trim().toLowerCase() === parsed.categoryEnglish.trim().toLowerCase() &&
-              category.persianName.trim() === parsed.categoryPersian.trim()
-          );
-          if (alreadyExists) continue;
-
           const catId = crypto.randomUUID();
           const now = Date.now();
           const newWords = createVocabularyItems(parsed.words, catId, d.vocabulary.length);
@@ -122,10 +87,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }],
             vocabulary: [...d.vocabulary, ...newWords],
           };
-          changed = true;
         }
-
-        if (changed) await saveAppData(d);
+        await saveAppData(d);
       }
 
       setData(d);
@@ -203,7 +166,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         errors: parsed.errors,
       };
     },
-    [data, save, direction]
+    [data, save]
   );
 
   const createCategory = useCallback(
@@ -261,7 +224,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const answerCard = useCallback(
-    async (wordId: string, answer: AnswerType, direction: StudyDirection = 'en-fa') => {
+    async (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en') => {
       if (!data) return;
       const vocab = data.vocabulary.map((v) => {
         if (v.wordId !== wordId) return v;
@@ -352,8 +315,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!data) return;
       const emptyLearning = () => ({
         totalReviews: 0,
-        enFaReviews: 0,
-        faEnReviews: 0,
         correctCount: 0,
         incorrectCount: 0,
         unsureCount: 0,

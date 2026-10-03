@@ -8,7 +8,6 @@ export interface ReviewHistoryEntry {
 
 export interface LearningRecord {
   totalReviews: number;
-  // Independent progress for Continue mode in each study direction.
   enFaReviews?: number;
   faEnReviews?: number;
   correctCount: number;

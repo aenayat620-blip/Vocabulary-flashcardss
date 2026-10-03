@@ -5,12 +5,10 @@ function daysToMs(days: number): number {
   return days * 24 * 60 * 60 * 1000;
 }
 
-export type StudyDirection = 'en-fa' | 'fa-en';
-
 export function applyAnswer(
   learning: LearningRecord,
   answer: AnswerType,
-  direction: StudyDirection = 'en-fa'
+  direction: 'en-fa' | 'fa-en'
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -29,9 +27,10 @@ export function applyAnswer(
   } = learning;
 
   totalReviews += 1;
-
-  const enFaReviews = (learning.enFaReviews ?? 0) + (direction === 'en-fa' ? 1 : 0);
-  const faEnReviews = (learning.faEnReviews ?? 0) + (direction === 'fa-en' ? 1 : 0);
+  let enFaReviews = learning.enFaReviews ?? 0;
+  let faEnReviews = learning.faEnReviews ?? 0;
+  if (direction === 'en-fa') enFaReviews += 1;
+  else faEnReviews += 1;
 
   if (answer === 'known') {
     correctCount += 1;
@@ -58,8 +57,6 @@ export function applyAnswer(
 
   return {
     totalReviews,
-    enFaReviews,
-    faEnReviews,
     correctCount,
     incorrectCount,
     unsureCount,
@@ -75,7 +72,6 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
-  // Never-studied words are new words, not review items.
   if (item.learning.totalReviews === 0) return false;
   if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
@@ -122,7 +118,7 @@ export function prioritizeForSmartReview(items: VocabularyItem[]): VocabularyIte
   });
 }
 
-export function isUnseenInDirection(item: VocabularyItem, direction: StudyDirection): boolean {
+export function isUnseenInDirection(item: VocabularyItem, direction: 'en-fa' | 'fa-en'): boolean {
   return direction === 'en-fa'
     ? (item.learning.enFaReviews ?? 0) === 0
     : (item.learning.faEnReviews ?? 0) === 0;

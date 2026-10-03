@@ -49,46 +49,34 @@ export default function App() {
   const stats = useMemo(() => data ? getGlobalStats(data) : null, [data]);
   const showMsg = (type: string, text: string) => { setMessage({ type, text }); setTimeout(() => setMessage(null), 4000); };
 
-  const buildDeck = useCallback((catIds: string[], mode: string, order: string) => {
+  const buildDeck = useCallback((catIds: string[], mode: string, order: string, studyDirection: 'en-fa' | 'fa-en') => {
     if (!data) return [];
     let words = data.vocabulary.filter(v => v.categoryIds.some(id => catIds.includes(id)));
-    if (mode === 'continue') {
-      // Resume sequential study from the first never-studied word of each
-      // selected category, preserving category and word order.
-      const ids: string[] = [];
-      const added = new Set<string>();
-      for (const catId of catIds) {
-        const category = data.categories.find(c => c.categoryId === catId);
-        if (!category) continue;
-        for (const wordId of category.wordIds) {
-          if (added.has(wordId)) continue;
-          const word = data.vocabulary.find(v => v.wordId === wordId);
-          if (!word || !isUnseenInDirection(word, direction === 'fa-en' ? 'fa-en' : 'en-fa')) continue;
-          added.add(wordId);
-          ids.push(wordId);
-        }
-      }
-      return ids;
-    }
     if (mode === 'unknown') words = words.filter(w => w.learning.lastAnswer === 'unknown' || w.learning.incorrectCount > 0);
     else if (mode === 'weak') words = words.filter(isWeak);
     else if (mode === 'due') words = words.filter(w => isDue(w));
     else if (mode === 'starred') words = words.filter(w => w.learning.starred);
+    else if (mode === 'continue') {
+      words = words.filter(w => isUnseenInDirection(w, studyDirection));
+      words = words.sort((a, b) => a.creationOrder - b.creationOrder);
+      return words.map(w => w.wordId);
+    }
     else if (mode === 'smart') { words = prioritizeForSmartReview(words); return words.map(w => w.wordId); }
     let ids = words.map(w => w.wordId);
     if (order === 'shuffled') ids = shuffleArray(ids);
     else ids = words.sort((a,b) => a.creationOrder - b.creationOrder).map(w => w.wordId);
     return ids;
-  }, [data, direction]);
+  }, [data]);
 
   const startStudy = async () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deck = buildDeck(selectedCats, studyMode, cardOrder);
+    const deckDirection = direction === 'random' ? (Math.random() > 0.5 ? 'en-fa' : 'fa-en') : direction;
+    const deck = buildDeck(selectedCats, studyMode, cardOrder, deckDirection);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
     const session: StudySession = { sessionId: crypto.randomUUID(), selectedCategoryIds: selectedCats, mode: studyMode, direction, cardOrder, deck, currentIndex: 0, answers: {}, correct: 0, unsure: 0, incorrect: 0, startTime: Date.now(), lastUpdated: Date.now(), isActive: true };
     await startSession(session);
     setFlipped(false); spokenRef.current = null;
-    setCurrentDir(direction === 'random' ? (Math.random()>0.5?'en-fa':'fa-en') : direction);
+    setCurrentDir(deckDirection);
     setScreen('study');
   };
 
@@ -104,7 +92,7 @@ export default function App() {
 
   const startQuiz = () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deck = buildDeck(selectedCats, studyMode, cardOrder);
+    const deck = buildDeck(selectedCats, studyMode, cardOrder, direction === 'random' ? 'en-fa' : direction);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
     setQuizDeck(deck);
     setQuizIndex(0);
