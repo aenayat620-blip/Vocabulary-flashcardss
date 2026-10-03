@@ -63,7 +63,9 @@ export default function App() {
         for (const wordId of category.wordIds) {
           if (added.has(wordId)) continue;
           const word = data.vocabulary.find(v => v.wordId === wordId);
-          if (!word || word.learning.totalReviews > 0) continue;
+          if (!word) continue;
+          const directionReviews = direction === 'fa-en' ? word.learning.faEnReviews : word.learning.enFaReviews;
+          if (directionReviews > 0) continue;
           added.add(wordId);
           ids.push(wordId);
         }
@@ -79,7 +81,7 @@ export default function App() {
     if (order === 'shuffled') ids = shuffleArray(ids);
     else ids = words.sort((a,b) => a.creationOrder - b.creationOrder).map(w => w.wordId);
     return ids;
-  }, [data]);
+  }, [data, direction]);
 
   const startStudy = async () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
@@ -96,7 +98,7 @@ export default function App() {
     if (!data?.currentSession) return;
     const wordId = data.currentSession.deck[data.currentSession.currentIndex];
     const isLastCard = data.currentSession.currentIndex + 1 >= data.currentSession.deck.length;
-    await answerCard(wordId, answer);
+    await answerCard(wordId, answer, currentDir);
     setFlipped(false); spokenRef.current = null;
     if (isLastCard) { setScreen('sessionEnd'); }
     else if (direction === 'random') setCurrentDir(Math.random()>0.5?'en-fa':'fa-en');
@@ -137,7 +139,7 @@ export default function App() {
     setQuizAnswered(true);
     const isCorrect = choice === quizWord.persianMeaning;
     if (isCorrect) setQuizCorrectCount(c => c + 1);
-    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown');
+    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown', 'en-fa');
   };
 
   const submitTypeAnswer = async () => {
@@ -145,7 +147,7 @@ export default function App() {
     setQuizAnswered(true);
     const isCorrect = quizTyped.trim() === quizWord.persianMeaning.trim();
     if (isCorrect) setQuizCorrectCount(c => c + 1);
-    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown');
+    await answerCard(quizWord.wordId, isCorrect ? 'known' : 'unknown', 'en-fa');
   };
 
   const nextQuizWord = () => {

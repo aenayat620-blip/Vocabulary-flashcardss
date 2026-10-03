@@ -7,7 +7,8 @@ function daysToMs(days: number): number {
 
 export function applyAnswer(
   learning: LearningRecord,
-  answer: AnswerType
+  answer: AnswerType,
+  direction: 'en-fa' | 'fa-en' = 'en-fa'
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -17,6 +18,8 @@ export function applyAnswer(
 
   let {
     totalReviews,
+    enFaReviews = totalReviews,
+    faEnReviews = 0,
     correctCount,
     incorrectCount,
     unsureCount,
@@ -26,6 +29,8 @@ export function applyAnswer(
   } = learning;
 
   totalReviews += 1;
+  if (direction === 'fa-en') faEnReviews += 1;
+  else enFaReviews += 1;
 
   if (answer === 'known') {
     correctCount += 1;
@@ -52,6 +57,8 @@ export function applyAnswer(
 
   return {
     totalReviews,
+    enFaReviews,
+    faEnReviews,
     correctCount,
     incorrectCount,
     unsureCount,

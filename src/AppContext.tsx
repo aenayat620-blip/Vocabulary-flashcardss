@@ -35,7 +35,7 @@ interface AppContextValue {
   updateCategory: (id: string, en: string, fa: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   updateSettings: (s: Partial<AppSettings>) => Promise<void>;
-  answerCard: (wordId: string, answer: AnswerType) => Promise<void>;
+  answerCard: (wordId: string, answer: AnswerType, direction?: 'en-fa' | 'fa-en') => Promise<void>;
   toggleStar: (wordId: string) => Promise<void>;
   startSession: (session: StudySession) => Promise<void>;
   updateSession: (session: StudySession) => Promise<void>;
@@ -237,11 +237,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const answerCard = useCallback(
-    async (wordId: string, answer: AnswerType) => {
+    async (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en' = 'en-fa') => {
       if (!data) return;
       const vocab = data.vocabulary.map((v) => {
         if (v.wordId !== wordId) return v;
-        return { ...v, learning: applyAnswer(v.learning, answer) };
+        return { ...v, learning: applyAnswer(v.learning, answer, direction) };
       });
       // update stats
       const stats = { ...data.stats };
@@ -328,6 +328,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!data) return;
       const emptyLearning = () => ({
         totalReviews: 0,
+        enFaReviews: 0,
+        faEnReviews: 0,
         correctCount: 0,
         incorrectCount: 0,
         unsureCount: 0,

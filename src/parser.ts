@@ -2,7 +2,7 @@ import type { VocabularyItem, LearningRecord } from './types';
 
 function createEmptyLearning(): LearningRecord {
   return {
-    totalReviews: 0, correctCount: 0, incorrectCount: 0, unsureCount: 0,
+    totalReviews: 0, enFaReviews: 0, faEnReviews: 0, correctCount: 0, incorrectCount: 0, unsureCount: 0,
     lastReviewed: null, lastAnswer: null, consecutiveCorrect: 0, learningLevel: 0,
     currentInterval: 0, nextReviewDate: null, reviewHistory: [], starred: false
   };
