@@ -5,10 +5,12 @@ function daysToMs(days: number): number {
   return days * 24 * 60 * 60 * 1000;
 }
 
+export type StudyDirection = 'en-fa' | 'fa-en';
+
 export function applyAnswer(
   learning: LearningRecord,
   answer: AnswerType,
-  direction?: 'en-fa' | 'fa-en'
+  direction: StudyDirection = 'en-fa'
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -28,9 +30,8 @@ export function applyAnswer(
 
   totalReviews += 1;
 
-  // Keep study progress independent for each direction.
-  const enToFaReviews = learning.enToFaReviews ?? 0;
-  const faToEnReviews = learning.faToEnReviews ?? 0;
+  const enFaReviews = (learning.enFaReviews ?? 0) + (direction === 'en-fa' ? 1 : 0);
+  const faEnReviews = (learning.faEnReviews ?? 0) + (direction === 'fa-en' ? 1 : 0);
 
   if (answer === 'known') {
     correctCount += 1;
@@ -57,8 +58,8 @@ export function applyAnswer(
 
   return {
     totalReviews,
-    enToFaReviews: enToFaReviews + (direction === 'en-fa' ? 1 : 0),
-    faToEnReviews: faToEnReviews + (direction === 'fa-en' ? 1 : 0),
+    enFaReviews,
+    faEnReviews,
     correctCount,
     incorrectCount,
     unsureCount,
@@ -74,23 +75,10 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
-  // A word that has never been studied is not a review item.
+  // Never-studied words are new words, not review items.
   if (item.learning.totalReviews === 0) return false;
   if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
-}
-
-/**
- * Returns true when this word has not yet been studied in the requested
- * direction. This is used by Continue so each direction has its own progress.
- */
-export function isUnseenInDirection(
-  item: VocabularyItem,
-  direction: 'en-fa' | 'fa-en'
-): boolean {
-  return direction === 'en-fa'
-    ? (item.learning.enToFaReviews ?? 0) === 0
-    : (item.learning.faToEnReviews ?? 0) === 0;
 }
 
 export function isWeak(item: VocabularyItem): boolean {
@@ -132,4 +120,10 @@ export function prioritizeForSmartReview(items: VocabularyItem[]): VocabularyIte
     };
     return score(a) - score(b);
   });
+}
+
+export function isUnseenInDirection(item: VocabularyItem, direction: StudyDirection): boolean {
+  return direction === 'en-fa'
+    ? (item.learning.enFaReviews ?? 0) === 0
+    : (item.learning.faEnReviews ?? 0) === 0;
 }
