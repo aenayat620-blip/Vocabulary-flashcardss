@@ -8,10 +8,9 @@ export interface ReviewHistoryEntry {
 
 export interface LearningRecord {
   totalReviews: number;
-  // Review progress is tracked separately for each study direction.
-  // These are optional for backward compatibility with existing saved data.
-  enToFaReviews?: number;
-  faToEnReviews?: number;
+  // Independent progress for Continue mode in each study direction.
+  enFaReviews?: number;
+  faEnReviews?: number;
   correctCount: number;
   incorrectCount: number;
   unsureCount: number;
