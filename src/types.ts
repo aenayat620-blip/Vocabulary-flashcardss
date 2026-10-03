@@ -10,6 +10,8 @@ export interface LearningRecord {
   totalReviews: number;
   correctCount: number;
   incorrectCount: number;
+  enToFaReviews: number;
+  faToEnReviews: number;
   unsureCount: number;
   lastReviewed: number | null;
   lastAnswer: AnswerType | null;
