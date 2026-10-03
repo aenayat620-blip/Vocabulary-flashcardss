@@ -56,18 +56,7 @@ export async function loadAppData(): Promise<AppData> {
       request.onsuccess = () => {
         const data = request.result as AppData | undefined;
         if (data && data.backupVersion) {
-          // Backward compatibility: older versions only tracked totalReviews.
-          // Preserve that existing progress as English -> Persian progress;
-          // Persian -> English starts independently from word 1.
-          const migratedVocabulary = (data.vocabulary || []).map((word) => ({
-            ...word,
-            learning: {
-              ...word.learning,
-              enFaReviews: word.learning.enFaReviews ?? word.learning.totalReviews ?? 0,
-              faEnReviews: word.learning.faEnReviews ?? 0,
-            },
-          }));
-          resolve({ ...data, vocabulary: migratedVocabulary });
+          resolve(data);
         } else {
           // First launch – create empty structure
           const empty: AppData = {

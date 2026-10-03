@@ -8,8 +8,6 @@ export interface ReviewHistoryEntry {
 
 export interface LearningRecord {
   totalReviews: number;
-  enFaReviews: number;
-  faEnReviews: number;
   correctCount: number;
   incorrectCount: number;
   unsureCount: number;
