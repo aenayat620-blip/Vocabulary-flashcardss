@@ -49,7 +49,7 @@ export default function App() {
   const stats = useMemo(() => data ? getGlobalStats(data) : null, [data]);
   const showMsg = (type: string, text: string) => { setMessage({ type, text }); setTimeout(() => setMessage(null), 4000); };
 
-  const buildDeck = useCallback((catIds: string[], mode: string, order: string, studyDirection: 'en-fa' | 'fa-en' | 'random' = 'en-fa') => {
+  const buildDeck = useCallback((catIds: string[], mode: string, order: string) => {
     if (!data) return [];
     let words = data.vocabulary.filter(v => v.categoryIds.some(id => catIds.includes(id)));
     if (mode === 'continue') {
@@ -63,17 +63,7 @@ export default function App() {
         for (const wordId of category.wordIds) {
           if (added.has(wordId)) continue;
           const word = data.vocabulary.find(v => v.wordId === wordId);
-          if (!word) continue;
-          // Continue progress is tracked independently for each study direction.
-          // English -> Persian and Persian -> English therefore each start at word 1.
-          if (studyDirection === 'fa-en') {
-            if ((word.learning.faEnReviews ?? 0) > 0) continue;
-          } else if (studyDirection === 'en-fa') {
-            if ((word.learning.enFaReviews ?? 0) > 0) continue;
-          } else {
-            // Random direction: treat either direction as studied.
-            if ((word.learning.enFaReviews ?? 0) > 0 || (word.learning.faEnReviews ?? 0) > 0) continue;
-          }
+          if (!word || word.learning.totalReviews > 0) continue;
           added.add(wordId);
           ids.push(wordId);
         }
@@ -93,7 +83,7 @@ export default function App() {
 
   const startStudy = async () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deck = buildDeck(selectedCats, studyMode, cardOrder, direction);
+    const deck = buildDeck(selectedCats, studyMode, cardOrder);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
     const session: StudySession = { sessionId: crypto.randomUUID(), selectedCategoryIds: selectedCats, mode: studyMode, direction, cardOrder, deck, currentIndex: 0, answers: {}, correct: 0, unsure: 0, incorrect: 0, startTime: Date.now(), lastUpdated: Date.now(), isActive: true };
     await startSession(session);
@@ -106,7 +96,7 @@ export default function App() {
     if (!data?.currentSession) return;
     const wordId = data.currentSession.deck[data.currentSession.currentIndex];
     const isLastCard = data.currentSession.currentIndex + 1 >= data.currentSession.deck.length;
-    await answerCard(wordId, answer, currentDir);
+    await answerCard(wordId, answer);
     setFlipped(false); spokenRef.current = null;
     if (isLastCard) { setScreen('sessionEnd'); }
     else if (direction === 'random') setCurrentDir(Math.random()>0.5?'en-fa':'fa-en');
@@ -114,7 +104,7 @@ export default function App() {
 
   const startQuiz = () => {
     if (!selectedCats.length) { showMsg('error', 'Select a category'); return; }
-    const deck = buildDeck(selectedCats, studyMode, cardOrder, direction);
+    const deck = buildDeck(selectedCats, studyMode, cardOrder);
     if (!deck.length) { showMsg('warning', 'No words available'); return; }
     setQuizDeck(deck);
     setQuizIndex(0);
