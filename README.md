@@ -1,7 +1,7 @@
 # Vocabulary Flashcards (دفتر واژگان)
 
 A production-quality, mobile-first Progressive Web App for serious English vocabulary learning.
-Primary UI language: **Persian (Farsi)** with full RTL layout.
+Primary UI language: **English** with an LTR interface. Persian meanings and category names are still fully supported.
 Optimized for iPhone Safari and installable via Share → Add to Home Screen.
 Works fully offline after the first successful load. All data stays on the device (IndexedDB).
 
@@ -54,15 +54,15 @@ Serve the `dist/` folder with any static host (or the Vite preview).
 
 ## Create a backup
 
-1. Go to **پشتیبان و بازیابی**.
-2. Tap **تولید پشتیبان**.
+1. Go to **Backup / Restore**.
+2. Tap **Generate backup**.
 3. Tap **کپی** or **دانلود**.
 4. Store the JSON somewhere safe.
 
 ## Restore a backup
 
 1. Paste the JSON into the text area (or load the file).
-2. Choose **ادغام** (merge) or **جایگزینی کامل** (replace — requires confirmation).
+2. Choose **Merge** (merge) or **Replace** (replace — requires confirmation).
 3. Tap **بازیابی**.
 
 ## Sample import text
