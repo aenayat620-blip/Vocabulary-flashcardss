@@ -166,6 +166,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         wordIds: newWords.map((w) => w.wordId),
       };
 
+
+     const getContinueWords = (
+  words: VocabularyItem[],
+  direction: StudyDirection
+) => {
+  return words.filter((word) => {
+    if (direction === 'en-to-fa') {
+      return word.learning.enToFaReviews === 0;
+    }
+
+    return word.learning.faToEnReviews === 0;
+  });
+};
+      
       const newData: AppData = {
         ...data,
         categories: [...data.categories, newCategory],
