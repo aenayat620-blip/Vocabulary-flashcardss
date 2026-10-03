@@ -1,5 +1,5 @@
 import type { VocabularyItem, Category, AppData } from './types';
-import { isDue, isWeak, isLearned, isLearning, getAccuracy } from './srs';
+import { isDue, isWeak, isLearned, isLearning } from './srs';
 
 export function formatDate(ts: number | null): string {
   if (!ts) return '—';

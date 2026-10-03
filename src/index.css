@@ -30,7 +30,7 @@ html, body, #root {
   font-family: 'Vazirmatn', system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--card);
-  direction: rtl;
+  direction: ltr;
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
 }
@@ -52,7 +52,7 @@ button {
 
 input, textarea, select {
   font-family: inherit;
-  direction: rtl;
+  direction: ltr;
 }
 
 .app-container {
@@ -313,7 +313,7 @@ input, textarea, select {
 .flashcard-pron {
   font-size: 1.35rem;
   margin: 10px 0 6px;
-  direction: rtl;
+  direction: ltr;
 }
 
 .flashcard-pron .stress {

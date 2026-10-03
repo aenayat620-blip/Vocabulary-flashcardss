@@ -2,81 +2,104 @@ import type { VocabularyItem, LearningRecord } from './types';
 
 function createEmptyLearning(): LearningRecord {
   return {
-    totalReviews: 0,
-    correctCount: 0,
-    incorrectCount: 0,
-    unsureCount: 0,
-    lastReviewed: null,
-    lastAnswer: null,
-    consecutiveCorrect: 0,
-    learningLevel: 0,
-    currentInterval: 0,
-    nextReviewDate: null,
-    reviewHistory: [],
-    starred: false,
+    totalReviews: 0, enFaReviews: 0, faEnReviews: 0, correctCount: 0, incorrectCount: 0, unsureCount: 0,
+    lastReviewed: null, lastAnswer: null, consecutiveCorrect: 0, learningLevel: 0,
+    currentInterval: 0, nextReviewDate: null, reviewHistory: [], starred: false
   };
 }
 
-function generateId(): string {
-  return crypto.randomUUID();
-}
+function generateId(): string { return crypto.randomUUID(); }
 
 function cleanLatex(text: string): string {
   if (!text) return '';
   let t = text;
   t = t.replace(/\\&/g, '&');
-  t = t.replace(/\\'e/g, 'é');
-  t = t.replace(/\\'E/g, 'É');
-  t = t.replace(/\\`e/g, 'è');
-  t = t.replace(/\\"e/g, 'ë');
-  t = t.replace(/\\~n/g, 'ñ');
-  t = t.replace(/\\c\{c\}/g, 'ç');
-  t = t.replace(/\\small\b/g, '');
-  t = t.replace(/\\large\b/g, '');
-  t = t.replace(/\\textbf\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\textit\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\emph\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\[a-zA-Z]+\s*\{([^}]*)\}/g, '$1');
+  t = t.replace(/\\'([eE])/g, (_, c) => c === 'E' ? 'É' : 'é');
+  t = t.replace(/\\`([eE])/g, (_, c) => c === 'E' ? 'È' : 'è');
+  t = t.replace(/\\"([eE])/g, (_, c) => c === 'E' ? 'Ë' : 'ë');
+  t = t.replace(/\\~([nN])/g, (_, c) => c === 'N' ? 'Ñ' : 'ñ');
+  t = t.replace(/\\c\{([cC])\}/g, (_, c) => c === 'C' ? 'Ç' : 'ç');
+  t = t.replace(/\\(?:small|large)\b/g, '');
+  t = t.replace(/\\(?:textbf|textit|emph)\{([^{}]*)\}/g, '$1');
+  t = t.replace(/\\[a-zA-Z]+\{([^{}]*)\}/g, '$1');
   t = t.replace(/\\[a-zA-Z]+/g, '');
-  return t.trim();
+  t = t.replace(/[{}]/g, '');
+  return t.replace(/\s+/g, ' ').trim();
 }
 
-function parseEnglishWord(raw: string): {
-  english: string;
-  irregularPlural?: string;
-  v2?: string;
-  v3?: string;
-} {
-  const cleaned = cleanLatex(raw).trim();
-  const match = cleaned.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-  if (!match) {
-    return { english: cleaned };
+/**
+ * Reads exactly `expected` top-level {...} fields after a command.
+ * Whitespace and line breaks are allowed anywhere between/inside fields.
+ * This is deliberately independent of clipboard line wrapping, which makes
+ * imports reliable on iPhone Safari as well as desktop browsers.
+ */
+function extractFieldsAt(text: string, start: number, expected: number): { fields: string[]; end: number } | null {
+  let i = start;
+  const fields: string[] = [];
+
+  while (i < text.length && fields.length < expected) {
+    while (i < text.length && /\s/.test(text[i])) i++;
+    if (text[i] !== '{') return null;
+
+    i++;
+    let depth = 1;
+    let out = '';
+
+    while (i < text.length && depth > 0) {
+      const ch = text[i];
+
+      // Preserve escaped characters literally; an escaped brace is not structural.
+      if (ch === '\\' && i + 1 < text.length) {
+        out += ch + text[i + 1];
+        i += 2;
+        continue;
+      }
+
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          fields.push(out);
+          i++;
+          break;
+        }
+      }
+
+      out += ch;
+      i++;
+    }
+
+    if (depth !== 0) return null;
   }
+
+  while (i < text.length && /\s/.test(text[i])) i++;
+  return fields.length === expected ? { fields, end: i } : null;
+}
+
+function parseEnglishWord(raw: string): { english: string; irregularPlural?: string; v2?: string; v3?: string } {
+  const cleaned = cleanLatex(raw);
+  const match = cleaned.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (!match) return { english: cleaned };
+
   const base = match[1].trim();
   const inside = match[2].trim();
+
   if (inside.includes(',')) {
-    const parts = inside.split(',').map((p) => p.trim());
-    if (parts.length >= 2) {
-      return { english: base, v2: parts[0], v3: parts[1] };
-    }
+    const parts = inside.split(',').map(p => p.trim());
+    if (parts.length >= 2) return { english: base, v2: parts[0], v3: parts[1] };
   }
   return { english: base, irregularPlural: inside };
 }
 
-function parsePronunciation(raw: string): {
-  pronunciation: string;
-  stressed: string;
-} {
-  const cleaned = cleanLatex(raw).trim();
+function parsePronunciation(raw: string) {
+  const cleaned = cleanLatex(raw);
   const match = cleaned.match(/^(.*?)\(([^)]+)\)(.*?)$/);
-  if (match) {
-    const before = match[1] || '';
-    const stressed = match[2];
-    const after = match[3] || '';
-    const full = (before + stressed + after).replace(/\s+/g, ' ').trim();
-    return { pronunciation: full, stressed };
-  }
-  return { pronunciation: cleaned, stressed: '' };
+  if (!match) return { pronunciation: cleaned, stressed: '' };
+
+  return {
+    pronunciation: `${match[1] || ''}${match[2]}${match[3] || ''}`.replace(/\s+/g, ' ').trim(),
+    stressed: match[2].trim(),
+  };
 }
 
 export interface ParsedImport {
@@ -87,69 +110,47 @@ export interface ParsedImport {
   linesProcessed: number;
 }
 
+/**
+ * Robust command parser.
+ *
+ * The old implementation parsed one command per physical line. On iOS,
+ * clipboard paste can normalize/wrap line endings differently from desktop,
+ * causing valid commands to be missed. This implementation finds commands in
+ * the whole pasted string and parses their braced fields directly, so wrapping
+ * or extra whitespace cannot change the number of imported words.
+ */
 export function parseImportText(text: string): ParsedImport {
-  let normalized = text.replace(/^\uFEFF/, '');
-  normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-
-  const lines = normalized.split('\n');
+  const source = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
   let categoryEnglish = '';
   let categoryPersian = '';
   const words: ParsedImport['words'] = [];
   const errors: string[] = [];
-  let linesProcessed = 0;
 
-  const catRe = /\\voccategory\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
-  const pairRe = /\\vwordpair\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
-  const wordRe = /\\vword\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}\s*\{\s*([^}]*)\s*\}/;
+  const commandRegex = /\\(voccategory|vwordpair|vword)\b/g;
+  let match: RegExpExecArray | null;
+  let lastEnd = 0;
+  let linesProcessed = source ? source.split('\n').filter(l => l.trim()).length : 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    linesProcessed++;
+  while ((match = commandRegex.exec(source)) !== null) {
+    const command = match[1];
+    const start = match.index + match[0].length;
+    const expected = command === 'voccategory' ? 2 : command === 'vwordpair' ? 6 : 3;
+    const parsed = extractFieldsAt(source, start, expected);
 
-    const catMatch = line.match(catRe);
-    if (catMatch) {
-      categoryEnglish = cleanLatex(catMatch[1]);
-      categoryPersian = cleanLatex(catMatch[2]);
+    if (!parsed) {
+      const line = source.slice(0, match.index).split('\n').length;
+      errors.push(`Line ${line}: incomplete or malformed \\${command} command`);
       continue;
     }
 
-    const pairMatch = line.match(pairRe);
-    if (pairMatch) {
-      try {
-        const [, e1, p1, m1, e2, p2, m2] = pairMatch;
-        const eng1 = parseEnglishWord(e1);
-        const pron1 = parsePronunciation(p1);
-        words.push({
-          english: eng1.english,
-          persianPronunciation: pron1.pronunciation,
-          stressedSyllable: pron1.stressed,
-          persianMeaning: cleanLatex(m1),
-          irregularPlural: eng1.irregularPlural,
-          v2: eng1.v2,
-          v3: eng1.v3,
-        });
-        const eng2 = parseEnglishWord(e2);
-        const pron2 = parsePronunciation(p2);
-        words.push({
-          english: eng2.english,
-          persianPronunciation: pron2.pronunciation,
-          stressedSyllable: pron2.stressed,
-          persianMeaning: cleanLatex(m2),
-          irregularPlural: eng2.irregularPlural,
-          v2: eng2.v2,
-          v3: eng2.v3,
-        });
-      } catch {
-        errors.push(`خط ${i + 1}: خطای پردازش جفت واژه`);
-      }
-      continue;
-    }
+    const fields = parsed.fields;
 
-    const wordMatch = line.match(wordRe);
-    if (wordMatch) {
-      try {
-        const [, e, p, m] = wordMatch;
+    if (command === 'voccategory') {
+      categoryEnglish = cleanLatex(fields[0]);
+      categoryPersian = cleanLatex(fields[1]);
+    } else if (command === 'vwordpair') {
+      const [e1, p1, m1, e2, p2, m2] = fields;
+      for (const [e, p, m] of [[e1, p1, m1], [e2, p2, m2]] as string[][]) {
         const eng = parseEnglishWord(e);
         const pron = parsePronunciation(p);
         words.push({
@@ -159,25 +160,34 @@ export function parseImportText(text: string): ParsedImport {
           persianMeaning: cleanLatex(m),
           irregularPlural: eng.irregularPlural,
           v2: eng.v2,
-          v3: eng.v3,
+          v3: eng.v3
         });
-      } catch {
-        errors.push(`خط ${i + 1}: خطای پردازش واژه`);
       }
-      continue;
+    } else {
+      const [e, p, m] = fields;
+      const eng = parseEnglishWord(e);
+      const pron = parsePronunciation(p);
+      words.push({
+        english: eng.english,
+        persianPronunciation: pron.pronunciation,
+        stressedSyllable: pron.stressed,
+        persianMeaning: cleanLatex(m),
+        irregularPlural: eng.irregularPlural,
+        v2: eng.v2,
+        v3: eng.v3
+      });
     }
 
-    if (line.includes('\\vword') || line.includes('\\voccategory')) {
-      errors.push(`خط ${i + 1}: قابل پردازش نبود — ${line.slice(0, 70)}`);
-    }
+    lastEnd = Math.max(lastEnd, parsed.end);
+    commandRegex.lastIndex = parsed.end;
   }
 
   return {
-    categoryEnglish: categoryEnglish || 'دسته‌بندی بدون نام',
-    categoryPersian: categoryPersian || 'Unnamed Category',
+    categoryEnglish: categoryEnglish || 'Unnamed category',
+    categoryPersian: categoryPersian || 'Unnamed',
     words,
     errors,
-    linesProcessed,
+    linesProcessed
   };
 }
 
@@ -188,17 +198,11 @@ export function createVocabularyItems(
 ): VocabularyItem[] {
   const now = Date.now();
   return parsedWords.map((w, idx) => ({
+    ...w,
     wordId: generateId(),
-    english: w.english,
-    persianPronunciation: w.persianPronunciation,
-    stressedSyllable: w.stressedSyllable,
-    persianMeaning: w.persianMeaning,
-    irregularPlural: w.irregularPlural,
-    v2: w.v2,
-    v3: w.v3,
     categoryIds: [categoryId],
     creationOrder: startOrder + idx,
     createdAt: now + idx,
-    learning: createEmptyLearning(),
+    learning: createEmptyLearning()
   }));
 }

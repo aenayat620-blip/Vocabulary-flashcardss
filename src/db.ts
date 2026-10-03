@@ -1,11 +1,4 @@
-import type {
-  AppData,
-  Category,
-  VocabularyItem,
-  AppSettings,
-  StudySession,
-  AppStats,
-} from './types';
+import type { AppData, Category, VocabularyItem } from './types';
 
 const DB_NAME = 'VocabularyFlashcardsDB';
 const DB_VERSION = 1;
@@ -13,7 +6,6 @@ const STORE_NAME = 'appData';
 const KEY = 'main';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
-let persistenceWarned = false;
 
 function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
@@ -23,7 +15,7 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onerror = () => {
       console.error('IndexedDB open error', request.error);
-      reject(new Error('نمی‌توان به حافظه دائمی دسترسی پیدا کرد.'));
+      reject(new Error('Persistent storage is unavailable.'));
     };
 
     request.onsuccess = () => {
@@ -64,7 +56,18 @@ export async function loadAppData(): Promise<AppData> {
       request.onsuccess = () => {
         const data = request.result as AppData | undefined;
         if (data && data.backupVersion) {
-          resolve(data);
+          // Backward compatibility: older versions only tracked totalReviews.
+          // Preserve that existing progress as English -> Persian progress;
+          // Persian -> English starts independently from word 1.
+          const migratedVocabulary = (data.vocabulary || []).map((word) => ({
+            ...word,
+            learning: {
+              ...word.learning,
+              enFaReviews: word.learning.enFaReviews ?? word.learning.totalReviews ?? 0,
+              faEnReviews: word.learning.faEnReviews ?? 0,
+            },
+          }));
+          resolve({ ...data, vocabulary: migratedVocabulary });
         } else {
           // First launch – create empty structure
           const empty: AppData = {
@@ -97,12 +100,12 @@ export async function loadAppData(): Promise<AppData> {
       };
 
       request.onerror = () => {
-        reject(new Error('خطا در خواندن داده‌ها از حافظه.'));
+        reject(new Error('Failed to read data from storage.'));
       };
     });
   } catch (err) {
     console.error(err);
-    throw new Error('دسترسی به IndexedDB ممکن نیست. داده‌ها ذخیره نخواهند شد.');
+    throw new Error('IndexedDB is unavailable. Data will not be saved.');
   }
 }
 
@@ -117,12 +120,12 @@ export async function saveAppData(data: AppData): Promise<void> {
       request.onsuccess = () => resolve();
       request.onerror = () => {
         console.error(request.error);
-        reject(new Error('ذخیره اطلاعات با مشکل مواجه شد.'));
+        reject(new Error('Failed to save data.'));
       };
     });
   } catch (err) {
     console.error(err);
-    throw new Error('ذخیره اطلاعات با مشکل مواجه شد.');
+    throw new Error('Failed to save data.');
   }
 }
 

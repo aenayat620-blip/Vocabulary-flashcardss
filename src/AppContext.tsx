@@ -9,12 +9,12 @@ import React, {
 import type {
   AppData,
   Category,
-  VocabularyItem,
   AppSettings,
   StudySession,
   AppStats,
   AnswerType,
 } from './types';
+import { BUNDLED_CATEGORIES } from './bundledCategories';
 import { loadAppData, saveAppData, requestPersistentStorage } from './db';
 import { applyAnswer } from './srs';
 import { parseImportText, createVocabularyItems } from './parser';
@@ -58,24 +58,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
-  const savingRef = useRef(false);
+  const saveQueueRef = useRef(Promise.resolve());
 
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const d = await loadAppData();
+      let d = await loadAppData();
+
+      // Build-time bundled categories are seeded individually without overwriting
+      // existing user data. This also allows newly bundled categories to be added
+      // to an existing installation later, while preserving user-created categories.
+      if (BUNDLED_CATEGORIES.length > 0) {
+        let changed = false;
+
+        for (const importText of BUNDLED_CATEGORIES) {
+          const parsed = parseImportText(importText);
+          if (!parsed.words.length) continue;
+
+          const alreadyExists = d.categories.some(
+            (category) =>
+              category.englishName.trim().toLowerCase() === parsed.categoryEnglish.trim().toLowerCase() &&
+              category.persianName.trim() === parsed.categoryPersian.trim()
+          );
+          if (alreadyExists) continue;
+
+          const catId = crypto.randomUUID();
+          const now = Date.now();
+          const newWords = createVocabularyItems(parsed.words, catId, d.vocabulary.length);
+          d = {
+            ...d,
+            categories: [...d.categories, {
+              categoryId: catId,
+              englishName: parsed.categoryEnglish,
+              persianName: parsed.categoryPersian,
+              createdAt: now,
+              modifiedAt: now,
+              wordIds: newWords.map(w => w.wordId),
+            }],
+            vocabulary: [...d.vocabulary, ...newWords],
+          };
+          changed = true;
+        }
+
+        if (changed) await saveAppData(d);
+      }
+
       setData(d);
       // request persistence
       const persisted = await requestPersistentStorage();
       if (!persisted && navigator.storage) {
         setStorageWarning(
-          'حافظه دائمی درخواست شد اما تأیید نشد. ممکن است داده‌ها در برخی شرایط پاک شوند.'
+          'Persistent storage was requested but not granted. Data may be cleared in some situations.'
         );
       }
     } catch (e: any) {
-      setError(e.message || 'خطا در بارگذاری داده‌ها');
-      setStorageWarning('دسترسی به IndexedDB ممکن نیست. داده‌ها فقط در حافظه موقت نگه داشته می‌شوند.');
+      setError(e.message || 'Failed to load data');
+      setStorageWarning('IndexedDB is unavailable. Data will only be kept in temporary memory.');
     } finally {
       setLoading(false);
     }
@@ -86,28 +125,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const save = useCallback(async (newData: AppData) => {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    try {
-      await saveAppData(newData);
-      setData(newData);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message || 'ذخیره ناموفق بود');
-      throw e;
-    } finally {
-      savingRef.current = false;
-    }
+    const job = saveQueueRef.current.then(async () => {
+      try {
+        await saveAppData(newData);
+        setData(newData);
+        setError(null);
+      } catch (e: any) {
+        setError(e.message || 'Save failed');
+        throw e;
+      }
+    });
+    // Keep the queue alive after a failed write so a later action can still save.
+    saveQueueRef.current = job.catch(() => undefined);
+    return job;
   }, []);
 
   const importCategory = useCallback(
     async (text: string, overrideNames?: { en: string; fa: string }) => {
-      if (!data) return { success: false, message: 'داده‌ها هنوز بارگذاری نشده‌اند' };
+      if (!data) return { success: false, message: 'Data is still loading' };
       const parsed = parseImportText(text);
       if (parsed.words.length === 0) {
         return {
           success: false,
-          message: 'هیچ واژه‌ای پیدا نشد.',
+          message: 'No words were found.',
           errors: parsed.errors,
         };
       }
@@ -134,7 +174,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await save(newData);
       return {
         success: true,
-        message: `${newWords.length} واژه با موفقیت وارد شد.`,
+        message: `${newWords.length} words imported successfully.`,
         wordCount: newWords.length,
         errors: parsed.errors,
       };
@@ -177,16 +217,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deleteCategory = useCallback(
     async (id: string) => {
       if (!data) return;
-      // Remove category. Keep words that still belong to other categories.
-      // Words that only belonged to this category are removed.
+      // Remove category, but keep words that belong to other categories
       const cats = data.categories.filter((c) => c.categoryId !== id);
-      const vocab = data.vocabulary
-        .map((v) => ({
-          ...v,
-          categoryIds: v.categoryIds.filter((cid) => cid !== id),
-        }))
-        .filter((v) => v.categoryIds.length > 0);
-      await save({ ...data, categories: cats, vocabulary: vocab });
+      const allVocab = data.vocabulary.map((v) => ({
+        ...v,
+        categoryIds: v.categoryIds.filter((cid) => cid !== id),
+      }));
+      await save({ ...data, categories: cats, vocabulary: allVocab });
     },
     [data, save]
   );
@@ -200,11 +237,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const answerCard = useCallback(
-    async (wordId: string, answer: AnswerType) => {
+    async (wordId: string, answer: AnswerType, direction: 'en-fa' | 'fa-en' = 'en-fa') => {
       if (!data) return;
       const vocab = data.vocabulary.map((v) => {
         if (v.wordId !== wordId) return v;
-        return { ...v, learning: applyAnswer(v.learning, answer) };
+        return { ...v, learning: applyAnswer(v.learning, answer, direction) };
       });
       // update stats
       const stats = { ...data.stats };
@@ -238,6 +275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unsure: session.unsure + (answer === 'unsure' ? 1 : 0),
           incorrect: session.incorrect + (answer === 'unknown' ? 1 : 0),
           lastUpdated: Date.now(),
+          isActive: session.currentIndex + 1 < session.deck.length,
         };
       }
 
@@ -290,6 +328,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!data) return;
       const emptyLearning = () => ({
         totalReviews: 0,
+        enFaReviews: 0,
+        faEnReviews: 0,
         correctCount: 0,
         incorrectCount: 0,
         unsureCount: 0,
@@ -319,17 +359,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return v;
         });
       }
-      await save({
-        ...data,
-        vocabulary: vocab,
-        stats: {
-          ...data.stats,
-          totalReviews: 0,
-          totalCorrect: 0,
-          totalIncorrect: 0,
-          totalUnsure: 0,
-        },
-      });
+      const reviewed = vocab.filter(v => v.learning.totalReviews > 0);
+      const recalculatedStats: AppStats = {
+        ...data.stats,
+        totalWordsStudied: reviewed.length,
+        totalReviews: vocab.reduce((n, v) => n + v.learning.totalReviews, 0),
+        totalCorrect: vocab.reduce((n, v) => n + v.learning.correctCount, 0),
+        totalIncorrect: vocab.reduce((n, v) => n + v.learning.incorrectCount, 0),
+        totalUnsure: vocab.reduce((n, v) => n + v.learning.unsureCount, 0),
+      };
+      if (scope === 'all') {
+        recalculatedStats.totalWordsStudied = 0;
+        recalculatedStats.totalReviews = 0;
+        recalculatedStats.totalCorrect = 0;
+        recalculatedStats.totalIncorrect = 0;
+        recalculatedStats.totalUnsure = 0;
+      }
+      await save({ ...data, vocabulary: vocab, stats: recalculatedStats });
     },
     [data, save]
   );
@@ -344,14 +390,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const parsed = JSON.parse(json) as AppData;
         if (!parsed.backupVersion || !Array.isArray(parsed.categories) || !Array.isArray(parsed.vocabulary)) {
-          return { success: false, message: 'فایل پشتیبان معتبر نیست.' };
+          return { success: false, message: 'Invalid backup file.' };
         }
         if (mode === 'replace') {
           await save({ ...parsed, backupVersion: 1 });
-          return { success: true, message: 'داده‌ها با موفقیت جایگزین شدند.' };
+          return { success: true, message: 'Data replaced successfully.' };
         }
         // merge
-        if (!data) return { success: false, message: 'داده‌های فعلی موجود نیست' };
+        if (!data) return { success: false, message: 'Current data is unavailable' };
         const existingCatIds = new Set(data.categories.map((c) => c.categoryId));
         const existingWordIds = new Set(data.vocabulary.map((v) => v.wordId));
         const newCats = parsed.categories.filter((c) => !existingCatIds.has(c.categoryId));
@@ -368,10 +414,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await save(merged);
         return {
           success: true,
-          message: `ادغام انجام شد: ${newCats.length} دسته و ${newWords.length} واژه جدید اضافه شد.`,
+          message: `Merge complete: ${newCats.length} categories and ${newWords.length} new words added.`,
         };
       } catch {
-        return { success: false, message: 'فایل پشتیبان معتبر نیست.' };
+        return { success: false, message: 'Invalid backup file.' };
       }
     },
     [data, save]

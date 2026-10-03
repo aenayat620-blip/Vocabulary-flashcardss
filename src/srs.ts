@@ -7,7 +7,8 @@ function daysToMs(days: number): number {
 
 export function applyAnswer(
   learning: LearningRecord,
-  answer: AnswerType
+  answer: AnswerType,
+  direction: 'en-fa' | 'fa-en' = 'en-fa'
 ): LearningRecord {
   const now = Date.now();
   const history = [
@@ -17,6 +18,8 @@ export function applyAnswer(
 
   let {
     totalReviews,
+    enFaReviews = 0,
+    faEnReviews = 0,
     correctCount,
     incorrectCount,
     unsureCount,
@@ -26,12 +29,15 @@ export function applyAnswer(
   } = learning;
 
   totalReviews += 1;
+  if (direction === 'fa-en') faEnReviews += 1;
+  else enFaReviews += 1;
 
   if (answer === 'known') {
     correctCount += 1;
     consecutiveCorrect += 1;
     learningLevel = Math.min(learningLevel + 1, INTERVALS.length);
-    const idx = Math.min(learningLevel, INTERVALS.length - 1);
+    // First successful recall = 1 day; subsequent levels advance through the interval ladder.
+    const idx = Math.min(Math.max(learningLevel - 1, 0), INTERVALS.length - 1);
     currentInterval = INTERVALS[idx];
   } else if (answer === 'unsure') {
     unsureCount += 1;
@@ -51,6 +57,8 @@ export function applyAnswer(
 
   return {
     totalReviews,
+    enFaReviews,
+    faEnReviews,
     correctCount,
     incorrectCount,
     unsureCount,
@@ -66,8 +74,8 @@ export function applyAnswer(
 }
 
 export function isDue(item: VocabularyItem, now = Date.now()): boolean {
-  // New words (never reviewed) are NOT counted as "due today".
-  // They still appear in "Review All" and Smart Review.
+  // Never-studied words are new words, not review items.
+  if (item.learning.totalReviews === 0) return false;
   if (!item.learning.nextReviewDate) return false;
   return item.learning.nextReviewDate <= now;
 }
